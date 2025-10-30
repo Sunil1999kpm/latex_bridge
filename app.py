@@ -10,7 +10,7 @@ app = Flask(__name__)
 def home():
     return "✅ LaTeX Compiler API is running. Use /compile (JSON)."
 
-@app.route('/compile', methods=['POST'])
+@app.route('/compile', methods=['GET','POST'])
 def compile_latex():
     try:
         data = request.get_json()
