@@ -1,49 +1,45 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from gradio_client import Client
-import requests
-import tempfile
 import os
 
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "✅ LaTeX Compiler API is running. Use /compile (JSON)."
+    return "✅ Flask Bridge is running."
 
-@app.route('/compile', methods=['GET','POST'])
+@app.route('/compile', methods=['GET', 'POST'])
 def compile_latex():
+    # If GET -> simple test message
+    if request.method == 'GET':
+        return jsonify({
+            "message": "✅ LaTeX Bridge API is active. Send a POST request with 'latex_code'."
+        })
+
     try:
-        data = request.get_json()
-        latex_code = data.get('latex_code', '')
+        latex_code = ""
 
-        if not latex_code.strip():
-            return jsonify({"error": "Missing 'latex_code' field"}), 400
+        # Handle JSON POST
+        if request.is_json:
+            data = request.get_json(silent=True) or {}
+            latex_code = data.get("latex_code", "")
+        else:
+            latex_code = request.data.decode("utf-8").strip()
 
-        # Connect to your Hugging Face Space
+        if not latex_code:
+            return jsonify({"error": "No LaTeX code provided"}), 400
+
         client = Client("SuHugging123/Latex_Compiler")
         result = client.predict(latex_code=latex_code, api_name="/compile_latex")
+        pdf_path = result[0]
 
-        pdf_url = result[0]
+        if not os.path.exists(pdf_path):
+            return jsonify({"error": "PDF not found"}), 404
 
-        # Verify that the returned URL actually works
-        response = requests.get(pdf_url)
-        if response.status_code != 200:
-            return jsonify({"error": "Failed to retrieve compiled PDF from Hugging Face"}), 502
-
-        # Save to temporary file
-        temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-        temp.write(response.content)
-        temp.close()
-
-        # Generate a temporary public link (Render doesn’t host files, so we return the Hugging Face URL)
-        return jsonify({
-            "status": "success",
-            "message": "PDF compiled successfully",
-            "pdf_url": pdf_url
-        })
+        return send_file(pdf_path, as_attachment=True, download_name="compiled.pdf")
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=7860)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=7860)
