@@ -1,7 +1,8 @@
-from flask import Flask, request, send_file, jsonify
+from flask import Flask, request, jsonify
 from gradio_client import Client
-import tempfile
 import requests
+import tempfile
+import os
 
 app = Flask(__name__)
 
@@ -15,18 +16,31 @@ def compile_latex():
         data = request.get_json()
         latex_code = data.get('latex_code', '')
 
-        # Call Hugging Face Space
+        if not latex_code.strip():
+            return jsonify({"error": "Missing 'latex_code' field"}), 400
+
+        # Connect to your Hugging Face Space
         client = Client("SuHugging123/Latex_Compiler")
         result = client.predict(latex_code=latex_code, api_name="/compile_latex")
 
-        pdf_url = result[0]  # should be a URL to the compiled PDF
-        response = requests.get(pdf_url)
+        pdf_url = result[0]
 
+        # Verify that the returned URL actually works
+        response = requests.get(pdf_url)
+        if response.status_code != 200:
+            return jsonify({"error": "Failed to retrieve compiled PDF from Hugging Face"}), 502
+
+        # Save to temporary file
         temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
         temp.write(response.content)
         temp.close()
 
-        return send_file(temp.name, as_attachment=True, download_name="compiled.pdf")
+        # Generate a temporary public link (Render doesn’t host files, so we return the Hugging Face URL)
+        return jsonify({
+            "status": "success",
+            "message": "PDF compiled successfully",
+            "pdf_url": pdf_url
+        })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
