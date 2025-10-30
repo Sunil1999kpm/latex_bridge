@@ -1,32 +1,55 @@
 from flask import Flask, request, send_file, jsonify
-from gradio_client import Client
-import tempfile
-import os
+import subprocess, os
 
 app = Flask(__name__)
 
-@app.route('/')
-def home():
-    return "✅ Flask Bridge is running."
+def compile_latex(latex_code):
+    os.makedirs("workspace", exist_ok=True)
+    tex_path = "workspace/document.tex"
+    pdf_path = "workspace/document.pdf"
 
-@app.route('/compile', methods=['POST'])
-def compile_latex():
-    try:
-        data = request.get_json()
-        latex_code = data.get('latex_code', '')
+    with open(tex_path, "w", encoding="utf-8") as f:
+        f.write(latex_code)
 
-        client = Client("SuHugging123/Latex_Compiler")
-        result = client.predict(latex_code=latex_code, api_name="/compile_latex")
+    result = subprocess.run(
+        ["pdflatex", "-interaction=nonstopmode", "document.tex"],
+        cwd="workspace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=30
+    )
 
-        pdf_path = result[0]
+    if result.returncode != 0 or not os.path.exists(pdf_path):
+        return None, result.stdout.decode(errors="ignore")
 
-        if not os.path.exists(pdf_path):
-            return jsonify({"error": "PDF not found"}), 404
+    return pdf_path, "✅ PDF compiled successfully."
 
+# ======================
+# JSON endpoint (for API)
+# ======================
+@app.route("/compile", methods=["POST"])
+def compile_json():
+    data = request.get_json()
+    latex_code = data.get("latex_code", "")
+    pdf_path, status = compile_latex(latex_code)
+    if pdf_path:
         return send_file(pdf_path, as_attachment=True, download_name="compiled.pdf")
+    return jsonify({"error": status}), 400
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+# ======================
+# Plain-text endpoint (for Make.com)
+# ======================
+@app.route("/plain_compile", methods=["POST"])
+def compile_plain():
+    latex_code = request.data.decode("utf-8").strip()
+    pdf_path, status = compile_latex(latex_code)
+    if pdf_path:
+        return send_file(pdf_path, as_attachment=True, download_name="compiled.pdf")
+    return jsonify({"error": status}), 400
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=7860)
+@app.route("/", methods=["GET"])
+def home():
+    return "✅ LaTeX Compiler API is running. Use /compile (JSON) or /plain_compile (text/plain)."
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
